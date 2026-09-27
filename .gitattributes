@@ -1,0 +1,8 @@
+# 換行統一由 git 處理：倉庫內一律存 LF，簽出時依平台自動轉換
+* text=auto
+
+# 二進位檔
+*.ico binary
+*.exe binary
+*.dll binary
+*.png binary

@@ -1,0 +1,22 @@
+# 建置產物
+bin/
+obj/
+dist/
+
+# Visual Studio / Rider
+.vs/
+.idea/
+*.user
+*.suo
+*.userprefs
+
+# 本機執行資料（正式資料存放於 %APPDATA%\DeskFrames）
+config.json
+
+# Windows
+Thumbs.db
+desktop.ini
+
+# NuGet
+*.nupkg
+packages/
