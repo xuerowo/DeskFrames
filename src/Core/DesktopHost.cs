@@ -44,6 +44,25 @@ public static class DesktopHost
 
     public static bool Ready => Host != IntPtr.Zero && Native.IsWindow(Host);
 
+    /// <summary>桌面圖示層（SHELLDLL_DefView）已建立在承載視窗中：Explorer 的桌面才算真正就緒。</summary>
+    public static bool HasIcons => Ready && Native.FindWindowEx(Host, IntPtr.Zero, "SHELLDLL_DefView", null) != IntPtr.Zero;
+
+    /// <summary>hwnd 目前的擁有者是否為桌面承載視窗。</summary>
+    public static bool IsOwnedByHost(IntPtr hwnd) => Ready && Native.GetWindow(hwnd, Native.GW_OWNER) == Host;
+
+    /// <summary>hwnd 是否在桌面承載視窗之上（否則會被桌面蓋住而看不見）。</summary>
+    public static bool IsAboveHost(IntPtr hwnd)
+    {
+        if (!Ready) return true;
+        var h = hwnd;
+        for (int guard = 0; guard < 5000 && h != IntPtr.Zero; guard++)
+        {
+            h = Native.GetWindow(h, Native.GW_HWNDNEXT);
+            if (h == Host) return true;
+        }
+        return false;
+    }
+
     /// <summary>設定擁有者為桌面並置底。</summary>
     public static void Pin(IntPtr hwnd)
     {

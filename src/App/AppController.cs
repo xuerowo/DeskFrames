@@ -35,6 +35,7 @@ public sealed partial class AppController : ApplicationContext
         _cfg = ConfigStore.Load();
         Theme.Apply(_cfg.Theme);
         _invoker.CreateControl();
+        Diag(startup ? "啟動（開機自動啟動）" : "啟動");
 
         _host = new HostWindow(this);
         _tray = CreateTray();
@@ -74,14 +75,16 @@ public sealed partial class AppController : ApplicationContext
 
     private void WaitForDesktop(int seconds, Action then)
     {
+        // 必須等到桌面圖示層（SHELLDLL_DefView）建立：開機登入時 Progman 會比圖示層早出現，太早建立框線會被 Explorer 的初始化蓋掉或銷毀
         DesktopHost.Refresh();
-        if (DesktopHost.Ready) { then(); return; }
+        if (DesktopHost.HasIcons) { then(); return; }
+        Diag("等待桌面就緒…");
         int tries = 0;
         var t = new System.Windows.Forms.Timer { Interval = 1000 };
         t.Tick += (_, _) =>
         {
             DesktopHost.Refresh();
-            if (DesktopHost.Ready || ++tries >= seconds)
+            if (DesktopHost.HasIcons || ++tries >= seconds)
             {
                 t.Stop(); t.Dispose();
                 then();
@@ -93,6 +96,8 @@ public sealed partial class AppController : ApplicationContext
     private void InitWindows()
     {
         _initialized = true;
+        Diag($"建立框線：host={DesktopHost.Host} icons={DesktopHost.HasIcons} frames={_cfg.Frames.Count}");
+        StartWatchdog();
         ScheduleReminders();
         if (_cfg.FramesVisible)
             foreach (var f in _cfg.Frames) _windows.Add(new FrameWindow(f, this));
@@ -377,6 +382,8 @@ public sealed partial class AppController : ApplicationContext
     /// <summary>Explorer 重新啟動後（工作列重建），重新把視窗釘回桌面。</summary>
     private void OnExplorerRestarted()
     {
+        Diag("收到 TaskbarCreated（Explorer 啟動或重新啟動）");
+        StartWatchdog();
         var t = new System.Windows.Forms.Timer { Interval = 1500 };
         t.Tick += (_, _) =>
         {
@@ -402,6 +409,89 @@ public sealed partial class AppController : ApplicationContext
             }
         };
         t.Start();
+    }
+
+    // ================= 桌面狀態自我檢查 =================
+
+    private System.Windows.Forms.Timer? _watchdog;
+    private DateTime _watchFastUntil;
+
+    /// <summary>啟動後前 2 分鐘每 2 秒檢查一次（涵蓋開機時 Explorer 仍在初始化的期間），之後每 60 秒一次。</summary>
+    private void StartWatchdog()
+    {
+        _watchFastUntil = DateTime.Now.AddMinutes(2);
+        if (_watchdog == null)
+        {
+            _watchdog = new System.Windows.Forms.Timer();
+            _watchdog.Tick += (_, _) =>
+            {
+                EnsureDesktopState();
+                _watchdog.Interval = DateTime.Now < _watchFastUntil ? 2000 : 60000;
+            };
+        }
+        _watchdog.Interval = 2000;
+        _watchdog.Start();
+    }
+
+    /// <summary>
+    /// 檢查並修復框線／待辦清單與桌面的關係：視窗被銷毀、擁有者改變（Explorer 重建桌面）、被隱藏、被桌面蓋住。
+    /// 只呼叫少量輕量的系統函式；一切正常時不做任何事。
+    /// </summary>
+    private void EnsureDesktopState()
+    {
+        if (!_initialized || _edit || _drag != null) return;
+        var oldHost = DesktopHost.Host;
+        DesktopHost.Refresh();
+        if (!DesktopHost.Ready) return;
+        var reasons = new List<string>();
+        if (DesktopHost.Host != oldHost) reasons.Add($"桌面視窗改變 {oldHost}→{DesktopHost.Host}");
+
+        if (_cfg.FramesVisible)
+        {
+            if (_windows.Count != _cfg.Frames.Count || _windows.Any(w => !w.Alive)) reasons.Add("框線視窗遺失");
+            else
+            {
+                foreach (var w in _windows)
+                {
+                    if (!DesktopHost.IsOwnedByHost(w.Handle)) { reasons.Add("擁有者錯誤"); break; }
+                    if (!Native.IsWindowVisible(w.Handle)) { reasons.Add("框線被隱藏"); break; }
+                    if (!DesktopHost.IsAboveHost(w.Handle)) { reasons.Add("框線被桌面蓋住"); break; }
+                }
+            }
+        }
+        if (_cfg.Todo.Visible && _todo is { IsDisposed: false })
+        {
+            if (!_todo.IsHandleCreated || !Native.IsWindow(_todo.Handle)) reasons.Add("待辦清單遺失");
+            else if (!DesktopHost.IsOwnedByHost(_todo.Handle)) reasons.Add("待辦清單擁有者錯誤");
+        }
+        if (reasons.Count == 0) return;
+
+        Diag("修復：" + string.Join("、", reasons));
+        if (_cfg.FramesVisible)
+        {
+            foreach (var w in _windows.Where(w => !w.Alive).ToList()) w.Dispose();
+            SyncWindows(); // 重建遺失的視窗
+            foreach (var w in _windows) { w.RePin(); w.Render(); if (!Native.IsWindowVisible(w.Handle)) DesktopHost.ShowAtBottom(w.Handle); }
+        }
+        if (_todo is { IsDisposed: false })
+        {
+            if (!_todo.IsHandleCreated || !Native.IsWindow(_todo.Handle)) { _todo.Dispose(); _todo = null; if (_cfg.Todo.Visible) ShowTodo(); }
+            else _todo.RePin();
+        }
+        ArrangeZOrder();
+    }
+
+    /// <summary>診斷記錄（%APPDATA%\DeskFrames\diag.log，超過 64KB 自動截斷）。</summary>
+    internal static void Diag(string msg)
+    {
+        try
+        {
+            var path = Path.Combine(ConfigStore.Dir, "diag.log");
+            Directory.CreateDirectory(ConfigStore.Dir);
+            if (File.Exists(path) && new FileInfo(path).Length > 64 * 1024) File.Delete(path);
+            File.AppendAllText(path, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {msg}\r\n");
+        }
+        catch { }
     }
 
     private void OnDisplayChanged()
