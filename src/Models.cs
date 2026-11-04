@@ -22,7 +22,7 @@ public sealed class AppConfig
     /// <summary>全域快捷鍵：進入／離開編輯模式。</summary>
     public string HotkeyEdit { get; set; } = "ctrl+alt+f";
     /// <summary>全域快捷鍵：顯示／隱藏待辦清單（避開 OverlayTranslator 的 Ctrl+Alt+T）。</summary>
-    public string HotkeyTodo { get; set; } = "ctrl+alt+d";
+    public string HotkeyTodo { get; set; } = "ctrl+alt+q";
 }
 
 public sealed class FrameStyle
@@ -195,7 +195,10 @@ public static class ConfigStore
         ClampStyle(c.DefaultStyle);
         c.Theme ??= "system";
         if (string.IsNullOrWhiteSpace(c.HotkeyEdit)) c.HotkeyEdit = "ctrl+alt+f";
-        if (string.IsNullOrWhiteSpace(c.HotkeyTodo)) c.HotkeyTodo = "ctrl+alt+d";
+        // 舊版預設 Ctrl+Alt+D 已停用，自動改成新預設
+        if (string.IsNullOrWhiteSpace(c.HotkeyTodo) ||
+            (Hotkey.TryParse(c.HotkeyTodo, out uint m, out uint k) && m == (Native.MOD_CONTROL | Native.MOD_ALT) && k == 'D'))
+            c.HotkeyTodo = "ctrl+alt+q";
         c.Frames ??= new();
         c.Frames.RemoveAll(f => f == null || f.Pts == null || f.Pts.Length < 8 || f.Pts.Length % 2 != 0);
         var ids = new HashSet<string>();

@@ -1,6 +1,6 @@
 namespace DeskFrames;
 
-/// <summary>全域快捷鍵字串解析，例如 "ctrl+alt+d"、"win+shift+f2"。</summary>
+/// <summary>全域快捷鍵字串解析，例如 "ctrl+alt+q"、"win+shift+f2"。</summary>
 public static class Hotkey
 {
     public static bool TryParse(string? text, out uint mods, out uint vk)
@@ -26,7 +26,7 @@ public static class Hotkey
         return vk != 0 && mods != 0;
     }
 
-    /// <summary>顯示用格式，例如 "Ctrl+Alt+D"。</summary>
+    /// <summary>顯示用格式，例如 "Ctrl+Alt+Q"。</summary>
     public static string Display(string? text)
     {
         if (string.IsNullOrWhiteSpace(text)) return "";
